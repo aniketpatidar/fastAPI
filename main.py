@@ -1,7 +1,36 @@
 from fastapi import FastAPI, Path, HTTPException, Query
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, computed_field
+from typing import Annotated, Literal
 import json
 
 app = FastAPI()
+
+class Patient(BaseModel):
+  id: Annotated[str, Field(..., description="Patient ID", example="P001")]
+  name: Annotated[str, Field(..., description="Patient Name", example="Ananya Sharma")]
+  city: Annotated[str, Field(..., description="Patient City", example="Guwahati")]
+  age: Annotated[int, Field(..., gt=0, lt=120, description="Patient Age", example=28)]
+  gender: Annotated[Literal["male", "female", "other"], Field(..., description="Patient Gender", example="female")]
+  height: Annotated[float, Field(..., gt=0, description="Patient Height (in meters)", example=1.65)]
+  weight: Annotated[float, Field(..., gt=0, description="Patient Weight (in kilograms)", example=90.0)]
+
+  @computed_field
+  @property
+  def bmi(self) -> float:
+    return round(self.weight / (self.height ** 2), 2)
+
+  @computed_field
+  @property
+  def verdict(self) -> Literal["Underweight", "Normal", "Overweight", "Obese"]:
+    if self.bmi < 18.5:
+      return "Underweight"
+    elif self.bmi < 25:
+      return "Normal"
+    elif self.bmi < 30:
+      return "Overweight"
+    else:
+      return "Obese"
 
 def load_data(file):
   with open(file, 'r') as f:
@@ -38,3 +67,16 @@ def sort_patients(sort_by: str = Query(..., description="Sort by age, height, bm
   sorted_data = sorted(data.values(), key=lambda x: x[sort_by], reverse=sort_order == "desc")
 
   return sorted_data
+
+@app.post("/patients")
+def create_patient(patient: Patient):
+  data = load_data('patients.json')
+  if patient.id in data:
+    raise HTTPException(status_code=400, detail="Patient already exists")
+
+  data[patient.id] = patient.model_dump(exclude={"id"})
+
+  with open('patients.json', 'w') as f:
+    json.dump(data, f)
+
+  return JSONResponse(content={"message": "Patient created successfully", "patient": patient.model_dump()}, status_code=201)
